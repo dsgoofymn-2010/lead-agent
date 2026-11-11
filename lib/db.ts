@@ -1,59 +1,54 @@
-// Database setup. We use SQLite (a single file called leads.db) through better-sqlite3.
-// better-sqlite3 is synchronous, which keeps the code simple: no "await" needed for queries.
+// Database setup. We use libSQL (SQLite) through @libsql/client.
+// - On your computer, with no settings, it uses the local file leads.db.
+// - On Vercel, set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN to use a hosted
+//   Turso database (Vercel's servers can't keep a local file between requests).
 
-import Database from "better-sqlite3";
-import path from "path";
+import { createClient, type Client } from "@libsql/client";
 import type { Lead, WebsiteStatus } from "./types";
 
-// The database file lives in the project folder.
-const DB_PATH = path.join(process.cwd(), "leads.db");
+// In development Next.js reloads modules often. We keep one client and one
+// "table is ready" promise on globalThis so we don't redo the setup each time.
+const globalForDb = globalThis as unknown as { leadsDb?: Client; leadsDbReady?: Promise<void> };
 
-// In development Next.js reloads modules often. We keep one connection on
-// globalThis so we don't open a new one on every reload.
-const globalForDb = globalThis as unknown as { leadsDb?: Database.Database };
+const SCHEMA = [
+  `CREATE TABLE IF NOT EXISTS leads (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    name           TEXT NOT NULL,
+    category       TEXT NOT NULL,
+    city           TEXT NOT NULL,
+    address        TEXT NOT NULL DEFAULT '',
+    phone          TEXT,
+    website        TEXT,
+    website_status TEXT NOT NULL DEFAULT 'unknown'
+                   CHECK (website_status IN ('none','weak','good','unknown')),
+    email          TEXT,
+    whatsapp       TEXT,
+    rating         REAL,
+    review_count   INTEGER,
+    score          INTEGER NOT NULL DEFAULT 0,
+    source         TEXT NOT NULL DEFAULT 'google_places',
+    status         TEXT NOT NULL DEFAULT 'new'
+                   CHECK (status IN ('new','contacted','replied','paid','rejected')),
+    notes          TEXT,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  // Duplicate protection: the same name + address + city can only be saved once.
+  // COLLATE NOCASE means "Glow Salon" and "glow salon" count as the same.
+  `CREATE UNIQUE INDEX IF NOT EXISTS leads_unique_business
+    ON leads (name COLLATE NOCASE, address COLLATE NOCASE, city COLLATE NOCASE)`,
+];
 
-function openDb(): Database.Database {
-  const db = new Database(DB_PATH);
-  db.pragma("journal_mode = WAL"); // better performance for reads + writes
-
-  // Create the table the first time the app runs.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS leads (
-      id             INTEGER PRIMARY KEY AUTOINCREMENT,
-      name           TEXT NOT NULL,
-      category       TEXT NOT NULL,
-      city           TEXT NOT NULL,
-      address        TEXT NOT NULL DEFAULT '',
-      phone          TEXT,
-      website        TEXT,
-      website_status TEXT NOT NULL DEFAULT 'unknown'
-                     CHECK (website_status IN ('none','weak','good','unknown')),
-      email          TEXT,
-      whatsapp       TEXT,
-      rating         REAL,
-      review_count   INTEGER,
-      score          INTEGER NOT NULL DEFAULT 0,
-      source         TEXT NOT NULL DEFAULT 'google_places',
-      status         TEXT NOT NULL DEFAULT 'new'
-                     CHECK (status IN ('new','contacted','replied','paid','rejected')),
-      notes          TEXT,
-      created_at     TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    -- Duplicate protection: the same name + address + city can only be saved once.
-    -- COLLATE NOCASE means "Glow Salon" and "glow salon" count as the same.
-    CREATE UNIQUE INDEX IF NOT EXISTS leads_unique_business
-      ON leads (name COLLATE NOCASE, address COLLATE NOCASE, city COLLATE NOCASE);
-  `);
-
-  return db;
-}
-
-export function getDb(): Database.Database {
+export async function getDb(): Promise<Client> {
   if (!globalForDb.leadsDb) {
-    globalForDb.leadsDb = openDb();
+    globalForDb.leadsDb = createClient({
+      url: process.env.TURSO_DATABASE_URL || "file:leads.db",
+      authToken: process.env.TURSO_AUTH_TOKEN,
+    });
+    // Create the table the first time the app runs.
+    globalForDb.leadsDbReady = globalForDb.leadsDb.batch(SCHEMA, "write").then(() => undefined);
   }
+  await globalForDb.leadsDbReady;
   return globalForDb.leadsDb;
 }
 
@@ -73,47 +68,46 @@ export interface NewLead {
   score: number;
 }
 
+const FIND_SQL = `SELECT * FROM leads
+  WHERE name = ? COLLATE NOCASE AND address = ? COLLATE NOCASE AND city = ? COLLATE NOCASE`;
+
 /**
  * Save a lead. If the same business (name + address + city) already exists,
  * we refresh its details (phone, rating, etc.) but keep your status and notes.
  * Returns the saved row and whether it was brand new.
  */
-export function saveLead(lead: NewLead): { lead: Lead; isNew: boolean } {
-  const db = getDb();
+export async function saveLead(lead: NewLead): Promise<{ lead: Lead; isNew: boolean }> {
+  const db = await getDb();
+  const key = [lead.name, lead.address, lead.city];
+  const args = { ...lead };
 
-  const existing = db
-    .prepare(
-      `SELECT id FROM leads
-       WHERE name = ? COLLATE NOCASE AND address = ? COLLATE NOCASE AND city = ? COLLATE NOCASE`
-    )
-    .get(lead.name, lead.address, lead.city) as { id: number } | undefined;
+  const existing = await db.execute({ sql: FIND_SQL, args: key });
+  const isNew = existing.rows.length === 0;
 
-  if (existing) {
-    db.prepare(
-      `UPDATE leads SET
-         phone = @phone, website = @website, website_status = @website_status,
-         email = COALESCE(@email, email), whatsapp = COALESCE(@whatsapp, whatsapp),
-         rating = @rating, review_count = @review_count, score = @score,
-         updated_at = datetime('now')
-       WHERE id = @id`
-    ).run({ ...lead, id: existing.id });
+  if (isNew) {
+    await db.execute({
+      sql: `INSERT INTO leads
+              (name, category, city, address, phone, website, website_status,
+               email, whatsapp, rating, review_count, score)
+            VALUES
+              (@name, @category, @city, @address, @phone, @website, @website_status,
+               @email, @whatsapp, @rating, @review_count, @score)`,
+      args,
+    });
   } else {
-    db.prepare(
-      `INSERT INTO leads
-         (name, category, city, address, phone, website, website_status,
-          email, whatsapp, rating, review_count, score)
-       VALUES
-         (@name, @category, @city, @address, @phone, @website, @website_status,
-          @email, @whatsapp, @rating, @review_count, @score)`
-    ).run(lead);
+    await db.execute({
+      sql: `UPDATE leads SET
+              phone = @phone, website = @website, website_status = @website_status,
+              email = COALESCE(@email, email), whatsapp = COALESCE(@whatsapp, whatsapp),
+              rating = @rating, review_count = @review_count, score = @score,
+              updated_at = datetime('now')
+            WHERE id = @id`,
+      args: { ...args, id: Number(existing.rows[0].id) },
+    });
   }
 
-  const saved = db
-    .prepare(
-      `SELECT * FROM leads
-       WHERE name = ? COLLATE NOCASE AND address = ? COLLATE NOCASE AND city = ? COLLATE NOCASE`
-    )
-    .get(lead.name, lead.address, lead.city) as Lead;
-
-  return { lead: saved, isNew: !existing };
+  const saved = await db.execute({ sql: FIND_SQL, args: key });
+  // Turn the libSQL row into a plain object so it can be sent as JSON.
+  const lead_ = Object.fromEntries(Object.entries(saved.rows[0])) as unknown as Lead;
+  return { lead: lead_, isNew };
 }

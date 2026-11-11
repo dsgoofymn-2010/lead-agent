@@ -1,8 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // better-sqlite3 is a native Node module, so Next.js should not try to bundle it.
-  serverExternalPackages: ["better-sqlite3"],
+  // @libsql/client loads native code for local files, so Next.js should not bundle it.
+  serverExternalPackages: ["@libsql/client", "libsql", "@libsql/hrana-client", "@libsql/isomorphic-ws", "@libsql/isomorphic-fetch"],
+  // This folder is the project root (there is another lockfile in the home folder).
+  turbopack: { root: __dirname },
 };
 
 export default nextConfig;

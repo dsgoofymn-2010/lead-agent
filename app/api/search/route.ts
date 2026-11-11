@@ -8,7 +8,7 @@ import { NextResponse } from "next/server";
 import { searchPlaces, PlacesError } from "@/lib/places";
 import { saveLead } from "@/lib/db";
 
-// better-sqlite3 needs the Node.js runtime (not the Edge runtime).
+// The database client needs the Node.js runtime (not the Edge runtime).
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
@@ -28,8 +28,9 @@ export async function POST(request: Request) {
 
     // 3. Save each one. Duplicates are refreshed, not saved twice.
     let newCount = 0;
-    const leads = places.map((place) => {
-      const { lead, isNew } = saveLead({
+    const leads = [];
+    for (const place of places) {
+      const { lead, isNew } = await saveLead({
         name: place.name,
         category,
         city,
@@ -44,8 +45,8 @@ export async function POST(request: Request) {
         score: 0, // filled in properly in Step 2
       });
       if (isNew) newCount++;
-      return lead;
-    });
+      leads.push(lead);
+    }
 
     return NextResponse.json({
       leads,
