@@ -102,7 +102,18 @@ export async function saveLead(lead: NewLead): Promise<{ lead: Lead; isNew: bool
               rating = @rating, review_count = @review_count, score = @score,
               updated_at = datetime('now')
             WHERE id = @id`,
-      args: { ...args, id: Number(existing.rows[0].id) },
+      // Turso rejects unused values, so pass only the ones this UPDATE uses.
+      args: {
+        phone: lead.phone,
+        website: lead.website,
+        website_status: lead.website_status,
+        email: lead.email,
+        whatsapp: lead.whatsapp,
+        rating: lead.rating,
+        review_count: lead.review_count,
+        score: lead.score,
+        id: Number(existing.rows[0].id),
+      },
     });
   }
 
