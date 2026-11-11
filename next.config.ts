@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // better-sqlite3 is a native Node module, so Next.js should not try to bundle it.
+  serverExternalPackages: ["better-sqlite3"],
 };
 
 export default nextConfig;

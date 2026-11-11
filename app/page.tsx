@@ -1,103 +1,185 @@
-import Image from "next/image";
+"use client";
+// The Search page (/). "use client" means this page runs in the browser,
+// which we need for the form, the loading state, and showing results.
 
-export default function Home() {
+import { useState } from "react";
+import { CATEGORIES, type Lead } from "@/lib/types";
+
+interface SearchResponse {
+  leads: Lead[];
+  total: number;
+  newCount: number;
+  duplicateCount: number;
+  error?: string;
+}
+
+export default function SearchPage() {
+  // Form fields
+  const [city, setCity] = useState("");
+  const [category, setCategory] = useState<string>("salon");
+  const [customCategory, setCustomCategory] = useState(""); // used when "other" is picked
+  const [limit, setLimit] = useState(20);
+
+  // Request state
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<SearchResponse | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault(); // stop the browser from reloading the page
+    setLoading(true);
+    setError(null);
+    setResult(null);
+
+    // If "other" is chosen, search for whatever the user typed instead.
+    const searchCategory = category === "other" ? customCategory.trim() : category;
+
+    try {
+      const res = await fetch("/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ city, category: searchCategory, limit }),
+      });
+      const data: SearchResponse = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Search failed.");
+      } else {
+        setResult(data);
+      }
+    } catch {
+      setError("Could not reach the server. Is `npm run dev` still running?");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <main className="mx-auto max-w-5xl p-6">
+      <h1 className="text-2xl font-bold">Find leads</h1>
+      <p className="mt-1 text-sm text-gray-500">
+        Search Google Maps for local businesses. Results are saved to your leads list.
+      </p>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+      {/* ---------- Search form ---------- */}
+      <form onSubmit={handleSubmit} className="mt-6 grid gap-4 rounded-lg border p-4 sm:grid-cols-4">
+        <label className="flex flex-col gap-1 text-sm">
+          City
+          <input
+            required
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
+            placeholder="e.g. Coimbatore"
+            className="rounded border px-3 py-2"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm">
+          Category
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            className="rounded border px-3 py-2"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
+            {CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {category === "other" && (
+          <label className="flex flex-col gap-1 text-sm">
+            Type of business
+            <input
+              required
+              value={customCategory}
+              onChange={(e) => setCustomCategory(e.target.value)}
+              placeholder="e.g. bakery"
+              className="rounded border px-3 py-2"
             />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+          </label>
+        )}
+
+        <label className="flex flex-col gap-1 text-sm">
+          Result limit (max 50)
+          <input
+            type="number"
+            min={1}
+            max={50}
+            value={limit}
+            onChange={(e) => setLimit(Number(e.target.value))}
+            className="rounded border px-3 py-2"
+          />
+        </label>
+
+        <div className="flex items-end">
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full rounded bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
-            Read our docs
-          </a>
+            {loading ? "Searching…" : "Find leads"}
+          </button>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+      </form>
+
+      {/* ---------- Loading, error, and results ---------- */}
+      {loading && (
+        <p className="mt-6 animate-pulse text-sm text-gray-500">
+          Searching Google Places… this can take a few seconds.
+        </p>
+      )}
+
+      {error && (
+        <div className="mt-6 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+          {error}
+        </div>
+      )}
+
+      {result && (
+        <section className="mt-6">
+          <p className="text-sm">
+            Found <b>{result.total}</b> businesses. <b>{result.newCount}</b> new,{" "}
+            <b>{result.duplicateCount}</b> already saved (refreshed).
+          </p>
+
+          <div className="mt-3 overflow-x-auto rounded border">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200">
+                <tr>
+                  <th className="p-2">Name</th>
+                  <th className="p-2">Phone</th>
+                  <th className="p-2">Website</th>
+                  <th className="p-2">Rating</th>
+                  <th className="p-2">Address</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.leads.map((lead) => (
+                  <tr key={lead.id} className="border-t align-top">
+                    <td className="p-2 font-medium">{lead.name}</td>
+                    <td className="p-2 whitespace-nowrap">{lead.phone ?? "—"}</td>
+                    <td className="p-2 max-w-48 truncate">
+                      {lead.website ? (
+                        <a href={lead.website} target="_blank" rel="noreferrer" className="text-blue-600 underline">
+                          {lead.website}
+                        </a>
+                      ) : (
+                        <span className="text-red-600">No website</span>
+                      )}
+                    </td>
+                    <td className="p-2 whitespace-nowrap">
+                      {lead.rating ?? "—"} {lead.review_count != null && `(${lead.review_count})`}
+                    </td>
+                    <td className="p-2 text-gray-500">{lead.address}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+    </main>
   );
 }
