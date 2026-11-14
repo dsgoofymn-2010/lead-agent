@@ -3,7 +3,7 @@
 // - On Vercel, set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN to use a hosted
 //   Turso database (Vercel's servers can't keep a local file between requests).
 
-import { createClient, type Client } from "@libsql/client";
+import { createClient, type Client, type Row } from "@libsql/client";
 import type { Lead, WebsiteStatus } from "./types";
 
 // In development Next.js reloads modules often. We keep one client and one
@@ -71,6 +71,22 @@ export interface NewLead {
 const FIND_SQL = `SELECT * FROM leads
   WHERE name = ? COLLATE NOCASE AND address = ? COLLATE NOCASE AND city = ? COLLATE NOCASE`;
 
+// Turn the libSQL row into a plain object so it can be sent as JSON.
+function rowToLead(row: Row): Lead {
+  return Object.fromEntries(Object.entries(row)) as unknown as Lead;
+}
+
+/** Load one lead by id. Returns null when it does not exist. */
+export async function getLeadById(id: number): Promise<Lead | null> {
+  const db = await getDb();
+  const found = await db.execute({
+    sql: "SELECT * FROM leads WHERE id = ?",
+    args: [id],
+  });
+  if (found.rows.length === 0) return null;
+  return rowToLead(found.rows[0]);
+}
+
 /**
  * Save a lead. If the same business (name + address + city) already exists,
  * we refresh its details (phone, rating, etc.) but keep your status and notes.
@@ -118,7 +134,5 @@ export async function saveLead(lead: NewLead): Promise<{ lead: Lead; isNew: bool
   }
 
   const saved = await db.execute({ sql: FIND_SQL, args: key });
-  // Turn the libSQL row into a plain object so it can be sent as JSON.
-  const lead_ = Object.fromEntries(Object.entries(saved.rows[0])) as unknown as Lead;
-  return { lead: lead_, isNew };
+  return { lead: rowToLead(saved.rows[0]), isNew };
 }

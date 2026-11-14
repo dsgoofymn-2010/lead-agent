@@ -404,7 +404,15 @@ export default function SearchPage() {
                   {visible.map((lead) => (
                     <tr key={lead.id}>
                       <td className="biz c-biz">
-                        <div className="biz-name">{lead.name}</div>
+                        <div className="biz-name">
+                          {isSample ? (
+                            lead.name
+                          ) : (
+                            <Link href={`/lead/${lead.id}`} className="biz-link">
+                              {lead.name}
+                            </Link>
+                          )}
+                        </div>
                         <div className="biz-addr">{shortAddress(lead.address, searched?.city)}</div>
                       </td>
                       <td className="phone c-phone">{lead.phone ?? <span className="dash">—</span>}</td>

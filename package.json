@@ -6,7 +6,8 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "seed:test": "node scripts/seed-test-lead.mjs"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
